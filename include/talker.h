@@ -9,6 +9,18 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <time.h>
+#include <string>
+#include <wspp.hpp>
+
+class Websocket_Writer_Impl : public Websocket_Writer
+{
+public:
+	bool write_string(const char *ws_key, const char *s);
+	bool write_ping(const char *ws_key, int is_pong = 0);
+	bool write_close(const char *ws_key, unsigned code = 1000);
+};
+
+extern Websocket_Writer *global_ws_writer;
 
 class talker
 {
@@ -16,7 +28,7 @@ class talker
 	time_t last_access;
 	size_t cur_header;
 	int fd;
-	enum { R_UNDEFINED, R_READ_REQUEST_LINE, R_READ_HEADER, R_READ_POST_BODY, R_HANDLE, R_REPLY, R_CLOSE } state;
+	enum { R_UNDEFINED, R_READ_REQUEST_LINE, R_READ_HEADER, R_READ_POST_BODY, R_HANDLE, R_REPLY, R_WEBSOCKET, R_CLOSE } state;
 // buffer stuff
 	char *buffer;
 	char *buffer_cur_read;
@@ -26,8 +38,13 @@ class talker
 // response & request
 	Response *response;
 	Request *request;
+	std::string ws_key;
 // private methods
 	char *get_line();
+
+	websocket_protocol_parser wspp;
+	void read_websocket();
+
 	void do_request_line(char *s);
 	void do_header_line(char *s);
 	void do_handle();
@@ -40,6 +57,7 @@ public:
 	void done();
 	bool is_timeout(const time_t &t);
 	int get_fd() { return fd; };
+	const std::string& get_ws_key() const { return ws_key; }
 };
 
 extern std::map<int, talker> wz_talkers;

@@ -101,6 +101,8 @@ void wz_prefork_init(int argc, char **argv)
 	cfg->r.finalize();
 }
 
+Websocket_Writer *global_ws_writer;
+
 void wz_postfork_init()
 {
 	// setting limits
@@ -115,6 +117,7 @@ void wz_postfork_init()
 
 	// plugins load
 	plugins.load_plugins();
+	plugins.set_websocket_writer(global_ws_writer);
 
 	// if no listeners in config, put the default on 80 port
 	if (cfg->r.listeners.empty())
@@ -410,6 +413,8 @@ int main(int argc, char **argv)
 
 	try
 	{
+		global_ws_writer = (Websocket_Writer*)new Websocket_Writer_Impl;
+
 		while (!doQuit)
 		{
 			cfg = new wzconfig();
@@ -429,6 +434,8 @@ int main(int argc, char **argv)
 			wz_shutdown();
 			delete cfg;
 		}
+
+		delete global_ws_writer;
 	}
 	catch (const std::exception& e)
 	{

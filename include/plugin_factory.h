@@ -3,6 +3,8 @@
 #define _RFifgbDHdbfgbFdfbHDGHDF_
 
 #include <map>
+#include <wz_handler.h>
+#include <wspp.hpp>
 
 class Plugin_Factory
 {
@@ -16,6 +18,10 @@ public:
 	~Plugin_Factory();
 	void handle(const Request *in, Response *out);
 	void idle();
+
+	void set_websocket_writer(Websocket_Writer *wswr);
+	void remove_ws_key(const char *k);
+	void handle_websocket_event(const char *k, const websocket_protocol_parser::incoming_event& e);
 };
 
 extern Plugin_Factory plugins;

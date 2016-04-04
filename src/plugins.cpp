@@ -1,7 +1,36 @@
 #include <wz-httpd.h>
 #include <stdexcept>
 #include <plugins/server_status.h>
+#include <plugins/websocket_status.h>
 #include <dlfcn.h>
+#include <openssl/sha.h>
+#include <coda/base64.h>
+
+bool Plugin::switch_to_websocket(const Request *in, Response *out)
+{
+	if (!in->upgrade) return false;
+	if (!in->sec_websocket_key) return false;
+
+	size_t k_len = strlen(in->sec_websocket_key);
+	if (k_len > 100) return false;
+
+	char buf[256];
+	size_t buf_sz = k_len;
+	strcpy(buf, in->sec_websocket_key);
+	char *end_buf = strcpy(buf + buf_sz, "258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
+	end_buf += 36;
+
+	unsigned char digest[SHA_DIGEST_LENGTH];
+	SHA1((unsigned char*)buf, end_buf - buf, (unsigned char*)&digest);
+
+	base64_encode((char*)&digest, SHA_DIGEST_LENGTH, sec_ws_accept, 250);
+
+	out->status = 101;
+	out->ws_key = in->sec_websocket_key;
+	out->upgrade = "WebSocket";
+	out->connection = "Upgrade";
+	out->sec_websocket_accept = sec_ws_accept;
+}
 
 Plugin_Factory plugins;
 
@@ -14,6 +43,17 @@ void Plugin_Factory::load_plugin(const plugin_desc &p_d)
 		if (p_d.name == "server_status")
 		{
 			Plugin *p = new SP_server_status();
+			if (p->set_param(p_d.params.c_str()) == -1)
+			{
+				char errbuf[1024];
+				snprintf(errbuf, 1024, "cannot load module %s", p_d.library.c_str());
+				throw std::logic_error(errbuf);
+			}
+			items.push_back(p);
+		}
+		else if (p_d.name == "server_websocket_status")
+		{
+			Plugin *p = new SP_server_websocket_status();
 			if (p->set_param(p_d.params.c_str()) == -1)
 			{
 				char errbuf[1024];
@@ -128,4 +168,35 @@ void Plugin_Factory::idle()
 	std::list<Plugin*>::iterator pi;
 	for (pi = items.begin(); pi != items.end(); pi++) (*pi)->idle();
 }
+
+void Plugin_Factory::remove_ws_key(const char *k)
+{
+	std::list<Plugin*>::iterator pi;
+	for (pi = items.begin(); pi != items.end(); pi++) (*pi)->remove_ws_key(k);
+}
+
+void Plugin_Factory::handle_websocket_event(const char *k, const websocket_protocol_parser::incoming_event &e)
+{
+	if (e.et == ET_CLOSE)
+	{
+		remove_ws_key(k);
+	}
+	else if (e.et == ET_STRING)
+	{
+		std::list<Plugin*>::iterator pi;
+		for (pi = items.begin(); pi != items.end(); pi++) (*pi)->handle_ws_string(k, e.data.c_str());
+	}
+	else if (e.et == ET_BINARY)
+	{
+		std::list<Plugin*>::iterator pi;
+		for (pi = items.begin(); pi != items.end(); pi++) (*pi)->handle_ws_binary(k, e.data.data(), e.data.size());
+	}
+}
+
+void Plugin_Factory::set_websocket_writer(Websocket_Writer *wswr)
+{
+	std::list<Plugin*>::iterator pi;
+	for (pi = items.begin(); pi != items.end(); pi++) (*pi)->ws_writer = wswr;
+}
+
 

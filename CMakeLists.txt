@@ -22,12 +22,13 @@ ELSE(CMAKE_SYSTEM_NAME STREQUAL Linux)
   ADD_DEFINITIONS(-DMODEL_FREEBSD_KQUEUE)
 ENDIF(CMAKE_SYSTEM_NAME STREQUAL Linux)
 
-ADD_EXECUTABLE(wz-httpd src/listener.cpp src/plugins.cpp src/server_status.cpp src/talker.cpp src/wz-httpd.cpp)
+ADD_EXECUTABLE(wz-httpd src/listener.cpp src/plugins.cpp src/server_status.cpp src/server_ws_status.cpp src/talker.cpp src/wz-httpd.cpp src/wspp.cpp)
 
 FIND_LIBRARY(CODA_LIBRARY NAMES coda PATHS /usr/lib /usr/local/lib PATHS /usr/lib64 /usr/local/lib64)
 FIND_LIBRARY(EXPAT_LIBRARY NAMES expat PATHS /usr/lib /usr/local/lib)
+FIND_LIBRARY(CRYPTO_LIBRARY NAMES crypto PATHS /usr/lib /usr/local/lib)
 
-TARGET_LINK_LIBRARIES(wz-httpd ${CODA_LIBRARY} ${EXPAT_LIBRARY} pthread)
+TARGET_LINK_LIBRARIES(wz-httpd ${CODA_LIBRARY} ${EXPAT_LIBRARY} ${CRYPTO_LIBRARY} pthread)
 
 IF(CMAKE_SYSTEM_NAME STREQUAL Linux)
 	TARGET_LINK_LIBRARIES(wz-httpd dl)

@@ -15,6 +15,81 @@
 #define WZ_BUFFER_SIZE 8192
 
 std::map<int, talker> wz_talkers;
+std::map<std::string, int> wz_ws_keys;
+
+bool Websocket_Writer_Impl::write_string(const char *ws_key, const char *s)
+{
+	std::map<std::string, int>::const_iterator fd_it = wz_ws_keys.find(ws_key);
+	if (fd_it == wz_ws_keys.end()) return false;
+
+	std::map<int, talker>::const_iterator talker_it = wz_talkers.find(fd_it->second);
+	if (talker_it == wz_talkers.end()) return false;
+	if (talker_it->second.get_ws_key() != ws_key) return false;
+
+	int fd = fd_it->second;
+	size_t sz_s = strlen(s);
+
+	if (sz_s < 126)
+	{
+		unsigned char buf[2];
+		buf[0] = 0x81;
+		buf[1] = (unsigned char)sz_s;
+		write(fd, buf, 2);
+		write(fd, s, sz_s);
+	}
+	else if (sz_s < 65537)
+	{
+		unsigned char buf[4];
+		uint16_t send_sz = sz_s;
+		buf[0] = 0x81;
+		buf[1] = 0x7E;
+		buf[2] = sz_s / 256;
+		buf[3] = sz_s % 256;
+		write(fd, buf, 4);
+		write(fd, s, sz_s);
+	}
+	else
+	{
+		log_error("Not implemented: too long answer");
+	}
+}
+
+bool Websocket_Writer_Impl::write_ping(const char *ws_key, int is_pong)
+{
+	std::map<std::string, int>::const_iterator fd_it = wz_ws_keys.find(ws_key);
+	if (fd_it == wz_ws_keys.end()) return false;
+
+	std::map<int, talker>::const_iterator talker_it = wz_talkers.find(fd_it->second);
+	if (talker_it == wz_talkers.end()) return false;
+	if (talker_it->second.get_ws_key() != ws_key) return false;
+
+	int fd = fd_it->second;
+
+	char buf[2];
+	buf[0] = 0x89;
+	buf[1] = 0x00;
+	if (is_pong) buf[0]++;
+	write(fd, buf, 2);
+}
+
+bool Websocket_Writer_Impl::write_close(const char *ws_key, unsigned code)
+{
+	std::map<std::string, int>::const_iterator fd_it = wz_ws_keys.find(ws_key);
+	if (fd_it == wz_ws_keys.end()) return false;
+
+	std::map<int, talker>::const_iterator talker_it = wz_talkers.find(fd_it->second);
+	if (talker_it == wz_talkers.end()) return false;
+	if (talker_it->second.get_ws_key() != ws_key) return false;
+
+	int fd = fd_it->second;
+
+	char buf[4];
+	buf[0] = 0x88;
+	buf[1] = 0x02;
+	buf[2] = code / 256;
+	buf[3] = code % 256;
+	write(fd, buf, 4);
+}
 
 talker::talker() : fd(-1), cur_header(0), state(R_UNDEFINED), response(0), request(0)
 {
@@ -35,6 +110,13 @@ void talker::init(int client_fd, const struct in_addr &addr)
 	memset(response, 0, sizeof(Response));
 
 	request->ip = addr;
+
+	if (!ws_key.empty())
+	{
+		wz_ws_keys.erase(ws_key);
+		plugins.remove_ws_key(ws_key.c_str());
+		ws_key.clear();
+	}
 
 	fd = client_fd;
 	ip = addr;
@@ -60,6 +142,15 @@ void talker::reset(int dont_close)
 #else
 #error "Unknown model!"
 #endif
+		if (!ws_key.empty())
+		{
+//			log_info("socket has key %s, removing link to it", ws_key.c_str());
+			global_ws_writer->write_close(ws_key.c_str());
+			wz_ws_keys.erase(ws_key);
+			plugins.remove_ws_key(ws_key.c_str());
+			ws_key.clear();
+		}
+
 		close(fd);
 		fd = -1;
 		memset(&ip, 0, sizeof(struct in_addr));
@@ -82,7 +173,12 @@ void talker::done()
 
 bool talker::is_timeout(const time_t &t)
 {
-	if (fd != -1) return t - last_access > 30;
+	if (fd != -1)
+	{
+//log_info("%d %u %u %u", fd, (unsigned)t, (unsigned)last_access, (unsigned)(t-last_access));
+		if (ws_key.empty()) return t - last_access > 30;
+		return t - last_access > 300;
+	}
 	return false;
 }
 
@@ -176,11 +272,25 @@ void talker::handle()
 			case R_REPLY:
 			{
 				do_reply();
-				if (request->keep_alive)
+				if (state == R_WEBSOCKET)
+				{
+					reset(1);
+				}
+				else if (request->keep_alive)
 				{
 					reset(1);
 					state = R_READ_REQUEST_LINE;
-				} else state = R_CLOSE;
+				}
+				else
+				{
+					state = R_CLOSE;
+				}
+				break;
+			}
+			case R_WEBSOCKET:
+			{
+				read_websocket();
+				in_loop = 0;
 				break;
 			}
 			case R_CLOSE:
@@ -197,6 +307,42 @@ void talker::handle()
 			}
 		}
 	}
+}
+
+void talker::read_websocket()
+{
+	char buf[2048];
+	int r;
+
+	do
+	{
+		r = read(fd, buf, 2048);
+
+		if (r > 0) wspp.parse_buffer(buf, r);
+	}
+	while (r > 0);
+
+	if (!wspp.is_ok())
+	{
+		reset();
+	}
+
+	websocket_protocol_parser::incoming_events::const_iterator it;
+	for (it = wspp.evs.begin(); it != wspp.evs.end(); ++it)
+	{
+		plugins.handle_websocket_event(ws_key.c_str(), *it);
+
+		if (it->et == ET_PING)
+		{
+			global_ws_writer->write_ping(ws_key.c_str(), 1);
+		}
+		else if (it->et == ET_CLOSE)
+		{
+			reset();
+		}
+	}
+
+	wspp.evs.clear();
 }
 
 char *talker::get_line()
@@ -380,6 +526,42 @@ int parse_header_line(char *line, Request *r, size_t cur_header)
 		return 0;
 	}
 
+	if (!strcmp(line, "upgrade"))
+	{
+		r->upgrade = value;
+		return 0;
+	}
+
+	if (!strcmp(line, "connection"))
+	{
+		r->connection = value;
+		return 0;
+	}
+
+	if (!strcmp(line, "sec-websocket-key"))
+	{
+		r->sec_websocket_key = value;
+		return 0;
+	}
+
+	if (!strcmp(line, "sec-websocket-protocol"))
+	{
+		r->sec_websocket_protocol = value;
+		return 0;
+	}
+
+	if (!strcmp(line, "sec-websocket-version"))
+	{
+		r->sec_websocket_version = value;
+		return 0;
+	}
+
+	if (!strcmp(line, "sec-websocket-extensions"))
+	{
+		r->sec_websocket_extensions = value;
+		return 0;
+	}
+
 	return 0;
 }
 
@@ -437,6 +619,15 @@ void talker::do_reply()
 		cfg->r.http_codes[response->status].c_str(), now_str);
 
 
+	if (response->upgrade)
+		l += snprintf(b + l, WZ_BUFFER_SIZE - l, "Upgrade: %s\r\n", response->upgrade);
+
+	if (response->connection)
+		l += snprintf(b + l, WZ_BUFFER_SIZE - l, "Connection: %s\r\n", response->connection);
+
+	if (response->sec_websocket_accept)
+		l += snprintf(b + l, WZ_BUFFER_SIZE - l, "Sec-WebSocket-Accept: %s\r\n", response->sec_websocket_accept);
+
 	if (response->content_type)
 		l += snprintf(b + l, WZ_BUFFER_SIZE - l, "Content-Type: %s\r\n", response->content_type);
 
@@ -471,7 +662,14 @@ void talker::do_reply()
 		write(fd, response->body, response->body_len);
 	}
 
-	state = R_CLOSE;
+	if (!response->ws_key)
+	{
+		state = R_CLOSE;
+	}
+	else
+	{
+		state = R_WEBSOCKET;
+	}
 }
 
 void talker::do_handle()
@@ -486,6 +684,12 @@ void talker::do_handle()
 		response->status = 404;
 		response->body = cfg->r.default_answer.c_str();
 		response->body_len = cfg->r.default_answer.size();
+	}
+
+	if (response->ws_key)
+	{
+		wz_ws_keys[response->ws_key] = fd;
+		ws_key = response->ws_key;
 	}
 
 	state = R_REPLY;
