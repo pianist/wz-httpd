@@ -3,34 +3,6 @@
 #include <plugins/server_status.h>
 #include <plugins/websocket_status.h>
 #include <dlfcn.h>
-#include <openssl/sha.h>
-#include <coda/base64.h>
-
-bool Plugin::switch_to_websocket(const Request *in, Response *out)
-{
-	if (!in->upgrade) return false;
-	if (!in->sec_websocket_key) return false;
-
-	size_t k_len = strlen(in->sec_websocket_key);
-	if (k_len > 100) return false;
-
-	char buf[256];
-	size_t buf_sz = k_len;
-	strcpy(buf, in->sec_websocket_key);
-	char *end_buf = strcpy(buf + buf_sz, "258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
-	end_buf += 36;
-
-	unsigned char digest[SHA_DIGEST_LENGTH];
-	SHA1((unsigned char*)buf, end_buf - buf, (unsigned char*)&digest);
-
-	base64_encode((char*)&digest, SHA_DIGEST_LENGTH, sec_ws_accept, 250);
-
-	out->status = 101;
-	out->ws_key = in->sec_websocket_key;
-	out->upgrade = "WebSocket";
-	out->connection = "Upgrade";
-	out->sec_websocket_accept = sec_ws_accept;
-}
 
 Plugin_Factory plugins;
 

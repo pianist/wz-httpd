@@ -9,6 +9,8 @@ class SP_server_websocket_status : public Plugin
 {
 	std::set<std::string> ws_keys;
 
+	char sec_ws_accept[256];
+	bool switch_to_websocket(const Request *in, Response *out);
 public:
 	SP_server_websocket_status();
 	~SP_server_websocket_status();

@@ -69,9 +69,6 @@ struct Websocket_Writer
 
 class Plugin
 {
-	char sec_ws_accept[256];
-protected:
-	bool switch_to_websocket(const Request *in, Response *out);
 public:
 	Websocket_Writer *ws_writer;
 
