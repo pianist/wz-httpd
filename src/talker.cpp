@@ -34,8 +34,8 @@ bool Websocket_Writer_Impl::write_string(const char *ws_key, const char *s)
 		unsigned char buf[2];
 		buf[0] = 0x81;
 		buf[1] = (unsigned char)sz_s;
-		write(fd, buf, 2);
-		write(fd, s, sz_s);
+		if (write(fd, buf, 2) != 2) wz_talkers[fd].reset();
+		if (write(fd, s, sz_s) != sz_s) wz_talkers[fd].reset();
 	}
 	else if (sz_s < 65537)
 	{
@@ -45,8 +45,8 @@ bool Websocket_Writer_Impl::write_string(const char *ws_key, const char *s)
 		buf[1] = 0x7E;
 		buf[2] = sz_s / 256;
 		buf[3] = sz_s % 256;
-		write(fd, buf, 4);
-		write(fd, s, sz_s);
+		if (write(fd, buf, 4) != 4) wz_talkers[fd].reset();
+		if (write(fd, s, sz_s) != sz_s) wz_talkers[fd].reset();
 	}
 	else
 	{

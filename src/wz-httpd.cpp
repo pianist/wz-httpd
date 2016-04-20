@@ -313,11 +313,11 @@ void wz_work()
 {
 	static struct epoll_event events[EPOLL_MAX_EVENTS];
 	time_t last_clean_time = time(0);
+	uint64_t last_tm_x10 = 0;
 
-	
 	while (!doQuit && !doRestart)
 	{
-		int timeout_msec = 5000;
+		int timeout_msec = 50;
 		int r;
 
 		r = epoll_wait(epollFD, events, EPOLL_MAX_EVENTS, timeout_msec);
@@ -357,10 +357,19 @@ void wz_work()
 			}
 		}
 
-		if (time(0) - last_clean_time > 5)
+		struct timeval tmval;
+		gettimeofday(&tmval, 0);
+		uint64_t cur_tm_x10 = tmval.tv_sec * 10 + (tmval.tv_usec / 100000);
+
+		if (cur_tm_x10 != last_tm_x10)
 		{
-			last_clean_time = clean_talkers();
 			plugins.idle();
+			last_tm_x10 = cur_tm_x10;
+
+			if (tmval.tv_sec - last_clean_time > 5)
+			{
+				last_clean_time = clean_talkers();
+			}
 		}
 	}
 
