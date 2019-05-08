@@ -30,7 +30,7 @@ bool SP_server_websocket_status::switch_to_websocket(const Request *in, Response
 	unsigned char digest[SHA_DIGEST_LENGTH];
 	SHA1((unsigned char*)buf, end_buf - buf, (unsigned char*)&digest);
 
-	base64_encode((char*)&digest, SHA_DIGEST_LENGTH, sec_ws_accept, 250);
+	coda_base64_encode((char*)&digest, SHA_DIGEST_LENGTH, sec_ws_accept, 250);
 
 	out->status = 101;
 	out->ws_key = in->sec_websocket_key;
@@ -51,7 +51,7 @@ void SP_server_websocket_status::handle(const Request *in, Response *out)
 			ws_keys.insert(out->ws_key);
 			log_notice("created ws with key %s", out->ws_key);
 		}
-	} 
+	}
 }
 
 void SP_server_websocket_status::idle()
