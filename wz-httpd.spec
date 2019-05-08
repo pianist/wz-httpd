@@ -1,6 +1,6 @@
 Summary:	WZ http server
 Name:		wz-httpd	
-Version:	1.1.0
+Version:	1.1.1
 Release:	0%{?dist}
 Group:		Networking/Daemons
 License:	GPL
